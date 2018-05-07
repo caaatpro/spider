@@ -1,0 +1,21 @@
+{
+  "name": "sileniumparser",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bluebird": "^3.5.1",
+    "cheerio": "^1.0.0-rc.2",
+    "chromedriver": "^2.38.2",
+    "fs": "0.0.1-security",
+    "fs-extra": "^6.0.0",
+    "mysql": "^2.15.0",
+    "progress": "^2.0.0",
+    "selenium-webdriver": "^4.0.0-alpha.1"
+  }
+}
