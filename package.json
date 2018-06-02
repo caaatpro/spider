@@ -1,5 +1,5 @@
 {
-  "name": "sileniumparser",
+  "name": "spider",
   "version": "1.0.0",
   "description": "",
   "main": "app.js",
@@ -15,7 +15,6 @@
     "fs": "0.0.1-security",
     "fs-extra": "^6.0.0",
     "mysql": "^2.15.0",
-    "progress": "^2.0.0",
     "selenium-webdriver": "^4.0.0-alpha.1"
   }
 }

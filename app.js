@@ -1,239 +1,190 @@
 require('chromedriver');
-var webdriver = require('selenium-webdriver');
-var fs = require('fs');
-var kinopoisk = require('./lib/kinopoiskParser');
-var db = require('./lib/db');
-var driver;
-var ProgressBar = require('progress');
+var webdriver = require('selenium-webdriver'),
+	fs = require('fs'),
+	ls = require('./lib/linkSearcher'),
+	db = require('./lib/db');
 
-var movies = [],
-    bar;
+var driver;
+
+/*var pref = new webdriver.logging.Preferences();
+pref.setLevel('browser', webdriver.logging.Level.ALL);
+pref.setLevel('driver', webdriver.logging.Level.ALL); */
+
+var links = [],
+	ignoredLinks = [],
+	siteId = 2,
+	host = '',
+	saveQueue = [];
 
 async function getHtml() {
-  var el = await driver.findElement(webdriver.By.css('html'));
-  return await el.getAttribute("innerHTML");
+	var el = await driver.findElement(webdriver.By.css('html'));
+	return await el.getAttribute("innerHTML");
 }
 
+async function parser(i) {
+	if (i >= links.length) {
+		console.log('End');
+		return;
+	}
 
-async function parser(i, callback) {
-  var url = movies[i];
+	var data = links[i];
 
-  if (url == '') {
-    console.log('End');
-    return;
-  }
+	await driver.get(data.link);
 
-  await driver.get(url)
+	var html = await getHtml();
 
-  var title = await driver.getTitle();
+	data.statusCode = -1;
 
-  console.log(title);
+	addToSaveQueue(data);
 
-  if (title == '500 - Внутренняя ошибка сервера') {
-    setTimeout(function() {
-      parser(i);
-    }, 2000);
-    return;
-  }
+	ls.search(html, host, ignoredLinks, function(resultLinks) {
+		// console.log(resultLinks);
+		for (var resultLink in resultLinks) {
+			if (!resultLinks.hasOwnProperty(resultLink)) continue;
+			var linkData = {
+				link: resultLinks[resultLink],
+				statusCode: 0,
+				site: siteId,
+				parent: data.link
+			};
 
-  var html = await getHtml();
+			addToLink(linkData);
+			addToSaveQueue(linkData);
+		}
 
-  kinopoisk.movieInfo(html, url, function(result) {
-    // console.log(result);
+		parser(i + 1);
+	})
+}
 
-    fs.writeFile('files/' + result.id + '.json', JSON.stringify(result), function(err) {
-      if (err) throw err;
-      console.log("success " + result.id);
+function addToLink(data) {
+	for (var i = 0; i < links.length; i++) {
+		if (links[i].link == data.link) {
+			return;
+		}
+	}
 
-      parser(i + 1);
-    });
+	links.push(data);
+}
 
-  });
+function addToSaveQueue(data) {
+	var startUpdateLink = false;
+	if (saveQueue.length == 0) {
+		startUpdateLink = true;
+	}
+	for (var i = 0; i < saveQueue.length; i++) {
+		if (saveQueue[i].link == data.link && saveQueue[i].parent == data.parent) {
+			saveQueue[i] = data;
+			return;
+		}
+	}
 
-  // await element.sendKeys('webdriver', webdriver.Key.RETURN)
-  // await driver.quit()
+	saveQueue.push(data);
 
+	if (startUpdateLink) {
+		updateLink();
+	}
+};
+
+function updateLink() {
+	if (saveQueue.length == 0) {
+		return;
+	}
+
+	console.log('updateLink. Left ' + saveQueue.length);
+
+	var data = saveQueue[0];
+
+	if (data.hasOwnProperty('id')) {
+		// update by id
+		connection.query('UPDATE linkes SET ' +
+			'statusCode = {statusCode}' +
+			' WHERE id = {id}', {
+				id: data.id,
+				statusCode: data.statusCode,
+			},
+			function(err, result) {
+				if (err) {
+					throw err;
+				}
+
+				saveQueue.splice(0, 1);
+
+				updateLink();
+			});
+	} else {
+		connection.query('INSERT INTO linkes (link, ' +
+			'statusCode, ' +
+			'site, ' +
+			'parent ' +
+			') VALUES (' +
+			'{link},' +
+			'{statusCode},' +
+			'{site},' +
+			'{parent}' +
+			')', {
+				link: data.link,
+				statusCode: data.statusCode,
+				site: data.site,
+				parent: data.parent
+			},
+			function(err, result) {
+				if (err) {
+					throw err;
+				}
+
+				saveQueue.splice(0, 1);
+
+				updateLink();
+			});
+	}
 }
 
 function parserInit() {
-  driver = new webdriver.Builder()
-    .forBrowser('chrome')
-    .build();
-  movies = fs.readFileSync('l3.txt', "utf8").split('\n');
+	driver = new webdriver.Builder()
+		.forBrowser('chrome')
+		// .setLoggingPrefs(pref)
+		.build();
+
+	parser(0);
 }
-
-function getCountriesIds() {
-
-}
-
-function getGenresIds() {
-
-}
-
-function saveCountries() {
-
-}
-
-function saveGenres() {
-
-}
-
-function saveData(i) {
-  if (i == movies.length) {
-    console.log('End');
-    return;
-  }
-
-  var movie = movies[i];
-
-  // console.log(movie.id);
-
-  // console.log(movie);
-
-  connection.query('SELECT kinopoisk_id FROM movies WHERE kinopoisk_id = {kinopoisk_id}', {
-      kinopoisk_id: movie.id
-    },
-    function(err, result) {
-      if (err) throw err;
-
-      if (result.length == 0) {
-        // insert
-        // console.log('insert');
-
-        connection.query('INSERT INTO movies (kinopoisk_link, ' +
-          'poster, ' +
-          'type, ' +
-          'title,' +
-          'alternativeTitle, ' +
-          'year, ' +
-          'countries, ' +
-          'director, ' +
-          'artist, ' +
-          'genres, ' +
-          'kinopoisk_rating, ' +
-          'description' +
-          ') VALUES (' +
-          '{kinopoisk_link},' +
-          '{poster},' +
-          '{type},' +
-          '{title},' +
-          '{alternativeTitle},' +
-          '{year},' +
-          '{countries},' +
-          '{director},' +
-          '{artist},' +
-          '{genres},' +
-          '{kinopoisk_rating},' +
-          '{description}' +
-          ')', {
-            kinopoisk_id: movie.id,
-            kinopoisk_link: movie.link,
-            poster: movie.poster,
-            type: movie.type,
-            title: movie.russian_title,
-            alternativeTitle: movie.original_title,
-            year: movie.year.substring(0, 4),
-            countries: movie.country,
-            director: movie.director,
-            artist: movie.artist,
-            genres: movie.genre,
-            kinopoisk_rating: movie.rating,
-            description: movie.description
-          },
-          function(err, result) {
-            if (err) {
-              console.log(movie);
-              throw err;
-            }
-
-            bar.tick();
-            saveData(i + 1);
-          });
-      } else {
-        // update
-        // console.log('update');
-
-        connection.query('UPDATE movies SET kinopoisk_link = {kinopoisk_link}, ' +
-          'poster = {poster},' +
-          'type = {type},' +
-          'title = {title},' +
-          'alternativeTitle = {alternativeTitle},' +
-          'year = {year},' +
-          'countries = {countries},' +
-          'director = {director},' +
-          'artist = {artist},' +
-          'genres = {genres},' +
-          'kinopoisk_rating = {kinopoisk_rating},' +
-          'description = {description}' +
-          ' WHERE kinopoisk_id = {kinopoisk_id}', {
-            kinopoisk_id: movie.id,
-            kinopoisk_link: movie.link,
-            poster: movie.poster,
-            type: movie.type,
-            title: movie.russian_title,
-            alternativeTitle: movie.original_title,
-            year: movie.year.substring(0, 4),
-            countries: movie.country,
-            director: movie.director,
-            artist: movie.artist,
-            genres: movie.genre,
-            kinopoisk_rating: movie.rating,
-            description: movie.description
-          },
-          function(err, result) {
-            if (err) {
-              console.log(movie);
-              throw err;
-            }
-
-            bar.tick();
-            saveData(i + 1);
-          });
-      }
-    });
-}
-
-// parserInit();
-// parser(0);
-
-function prserJsons() {
-  var dirname = 'filsesTest/'
-  fs.readdir(dirname, function(err, filenames) {
-    if (err) throw err;
-
-    var ctr = 0;
-    filenames.forEach(function(filename) {
-      ctr++;
-      if (filename.indexOf('.DS_Store') != -1) return;
-
-      var content = fs.readFileSync(dirname + filename, 'utf-8');
-      // console.log(content);
-      movies.push(JSON.parse(content));
-
-      if (ctr >= filenames.length) {
-
-        bar = new ProgressBar('Saving [:bar] :rate/bps :percent :etas', {
-            complete: '=',
-            incomplete: ' ',
-            width: 20,
-            total: filenames.length
-          });
-
-        saveData(0);
-      }
-    });
-  });
-}
-
-
 
 var connection = db.init(function() {
-  connection.query('SELECT kinopoisk_id FROM movies', {},
-    function(err, result) {
-      if (err) throw err;
+	connection.query('SELECT host FROM sites WHERE id = ' + siteId + ' LIMIT 1', {},
+		function(err, result) {
+			if (err) throw err;
 
-      console.log('В базе ' + result.length);
+			host = result[0].host;
 
-      prserJsons();
-    });
+			connection.query('SELECT * FROM linkes WHERE site = ' + siteId + ' AND statusCode = 0', {},
+				function(err, result) {
+					if (err) throw err;
+
+					for (var i = 0; i < result.length; i++) {
+						links.push(result[i]);
+					}
+
+					if (links.length == 0) {
+						links.push({
+							link: host,
+							site: siteId,
+							statusCode: 0,
+							parent: host
+						});
+					}
+
+					connection.query('SELECT * FROM ignoredLinks WHERE site = ' + siteId, {},
+						function(err, result) {
+							if (err) throw err;
+
+							for (var index in result) {
+								if (!result.hasOwnProperty(index)) continue;
+
+								ignoredLinks.push(result[index].link);
+							}
+
+							parserInit();
+						});
+				});
+
+		});
 });
