@@ -1,8 +1,10 @@
 require('chromedriver');
 var webdriver = require('selenium-webdriver'),
 	fs = require('fs'),
+	argv = require('yargs').argv,
 	ls = require('./lib/linkSearcher'),
-	db = require('./lib/db');
+	db = require('./lib/db'),
+	config = require('./config.json');
 
 var driver;
 
@@ -10,11 +12,17 @@ var driver;
 pref.setLevel('browser', webdriver.logging.Level.ALL);
 pref.setLevel('driver', webdriver.logging.Level.ALL); */
 
+if (argv.site == undefined) {
+	console.log('Укажите id сайта');
+	process.exit();
+}
+
 var links = [],
 	ignoredLinks = [],
-	siteId = 2,
+	siteId = argv.site,
 	host = '',
-	saveQueue = [];
+	saveQueue = [],
+	visited = [];
 
 async function getHtml() {
 	var el = await driver.findElement(webdriver.By.css('html'));
@@ -29,6 +37,11 @@ async function parser(i) {
 
 	var data = links[i];
 
+	if (visited.indexOf(data.link) != -1) {
+		parser(i + 1);
+		return;
+	}
+
 	await driver.get(data.link);
 
 	var html = await getHtml();
@@ -37,7 +50,10 @@ async function parser(i) {
 
 	addToSaveQueue(data);
 
-	ls.search(html, host, ignoredLinks, function(resultLinks) {
+	visited.push(data.link);
+	ignoredLinks.push(data.link);
+
+	ls.search(html, host, data.link, ignoredLinks, function(resultLinks) {
 		// console.log(resultLinks);
 		for (var resultLink in resultLinks) {
 			if (!resultLinks.hasOwnProperty(resultLink)) continue;
@@ -90,7 +106,7 @@ function updateLink() {
 		return;
 	}
 
-	console.log('updateLink. Left ' + saveQueue.length);
+	console.log('updateLink. Left ' + saveQueue.length - 1);
 
 	var data = saveQueue[0];
 
@@ -98,8 +114,8 @@ function updateLink() {
 		// update by id
 		connection.query('UPDATE linkes SET ' +
 			'statusCode = {statusCode}' +
-			' WHERE id = {id}', {
-				id: data.id,
+			' WHERE link = {link}', {
+				link: data.link,
 				statusCode: data.statusCode,
 			},
 			function(err, result) {
@@ -112,29 +128,45 @@ function updateLink() {
 				updateLink();
 			});
 	} else {
-		connection.query('INSERT INTO linkes (link, ' +
-			'statusCode, ' +
-			'site, ' +
-			'parent ' +
-			') VALUES (' +
-			'{link},' +
-			'{statusCode},' +
-			'{site},' +
-			'{parent}' +
-			')', {
+		connection.query('SELECT id FROM linkes WHERE site = {site} AND link = {link} AND parent = {parent} LIMIT 1', {
 				link: data.link,
-				statusCode: data.statusCode,
 				site: data.site,
 				parent: data.parent
 			},
 			function(err, result) {
-				if (err) {
-					throw err;
+				if (err) throw err;
+
+				if (result.length == 0) {
+					connection.query('INSERT INTO linkes (link, ' +
+						'statusCode, ' +
+						'site, ' +
+						'parent ' +
+						') VALUES (' +
+						'{link},' +
+						'{statusCode},' +
+						'{site},' +
+						'{parent}' +
+						')', {
+							link: data.link,
+							statusCode: data.statusCode,
+							site: data.site,
+							parent: data.parent
+						},
+						function(err, result) {
+							if (err) {
+								throw err;
+							}
+
+							saveQueue.splice(0, 1);
+
+							updateLink();
+						});
+				} else {
+
+					saveQueue.splice(0, 1);
+
+					updateLink();
 				}
-
-				saveQueue.splice(0, 1);
-
-				updateLink();
 			});
 	}
 }
@@ -176,13 +208,27 @@ var connection = db.init(function() {
 						function(err, result) {
 							if (err) throw err;
 
-							for (var index in result) {
-								if (!result.hasOwnProperty(index)) continue;
+							for (var i = 0; i < result.length; i++) {
+								if (!result.hasOwnProperty(i)) continue;
 
-								ignoredLinks.push(result[index].link);
+								ignoredLinks.push(result[i].link);
 							}
 
-							parserInit();
+							connection.query('SELECT * FROM linkes WHERE site = {site} AND statusCode = {statusCode}', {
+									site: siteId,
+									statusCode: -1
+								},
+								function(err, result) {
+									if (err) throw err;
+
+									for (var i = 0; i < result.length; i++) {
+										if (!result.hasOwnProperty(i)) continue;
+
+										ignoredLinks.push(result[i].link);
+									}
+
+									parserInit();
+								});
 						});
 				});
 
