@@ -1,10 +1,13 @@
 require('chromedriver');
 var webdriver = require('selenium-webdriver'),
-	fs = require('fs'),
 	argv = require('yargs').argv,
 	ls = require('./lib/linkSearcher'),
 	db = require('./lib/db'),
-	config = require('./config.json');
+	fs = require("fs");
+
+var writeStream = fs.createWriteStream("log.txt");
+// writeStream.end(); // закрываем
+
 
 var driver;
 
@@ -26,8 +29,22 @@ var links = [],
 
 async function getHtml() {
 	var el = await driver.findElement(webdriver.By.css('html'));
+
 	return await el.getAttribute("innerHTML");
 }
+
+async function checkImages() {
+	var naturalWidth = await driver.executeScript("var images = $('img'); \
+	var b = false; \
+	images.each(function (i, img) { \
+		if (img.naturalWidth == 0) { \
+			 b = true; \
+		} \
+	}); \
+	return b;");
+
+	return naturalWidth;
+};
 
 async function parser(i) {
 	if (i >= links.length) {
@@ -45,6 +62,11 @@ async function parser(i) {
 	await driver.get(data.link);
 
 	var html = await getHtml();
+
+	if (await checkImages()) {
+		writeStream.write(data.link + "\n");
+		console.log(data.link);
+	}
 
 	data.statusCode = -1;
 
@@ -120,6 +142,7 @@ function updateLink() {
 			},
 			function(err, result) {
 				if (err) {
+					console.log('err1');
 					throw err;
 				}
 
@@ -134,7 +157,10 @@ function updateLink() {
 				parent: data.parent
 			},
 			function(err, result) {
-				if (err) throw err;
+				if (err) {
+					console.log('err2');
+					throw err;
+				}
 
 				if (result.length == 0) {
 					connection.query('INSERT INTO linkes (link, ' +
@@ -154,6 +180,7 @@ function updateLink() {
 						},
 						function(err, result) {
 							if (err) {
+								console.log('err3');
 								throw err;
 							}
 
@@ -183,13 +210,19 @@ function parserInit() {
 var connection = db.init(function() {
 	connection.query('SELECT host FROM sites WHERE id = ' + siteId + ' LIMIT 1', {},
 		function(err, result) {
-			if (err) throw err;
+			if (err) {
+				console.log('err4');
+				throw err;
+			}
 
 			host = result[0].host;
 
 			connection.query('SELECT * FROM linkes WHERE site = ' + siteId + ' AND statusCode = 0', {},
 				function(err, result) {
-					if (err) throw err;
+					if (err) {
+						console.log('err5');
+						throw err;
+					}
 
 					for (var i = 0; i < result.length; i++) {
 						links.push(result[i]);
@@ -206,7 +239,10 @@ var connection = db.init(function() {
 
 					connection.query('SELECT * FROM ignoredLinks WHERE site = ' + siteId, {},
 						function(err, result) {
-							if (err) throw err;
+							if (err) {
+								console.log('err6');
+								throw err;
+							}
 
 							for (var i = 0; i < result.length; i++) {
 								if (!result.hasOwnProperty(i)) continue;
@@ -219,7 +255,10 @@ var connection = db.init(function() {
 									statusCode: -1
 								},
 								function(err, result) {
-									if (err) throw err;
+									if (err) {
+										console.log('err7');
+										throw err;
+									}
 
 									for (var i = 0; i < result.length; i++) {
 										if (!result.hasOwnProperty(i)) continue;
