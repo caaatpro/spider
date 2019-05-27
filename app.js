@@ -33,19 +33,6 @@ async function getHtml() {
 	return await el.getAttribute("innerHTML");
 }
 
-async function checkImages() {
-	var naturalWidth = await driver.executeScript("var images = $('img'); \
-	var b = false; \
-	images.each(function (i, img) { \
-		if (img.naturalWidth == 0) { \
-			 b = true; \
-		} \
-	}); \
-	return b;");
-
-	return naturalWidth;
-};
-
 async function parser(i) {
 	if (i >= links.length) {
 		console.log('End');
@@ -62,11 +49,6 @@ async function parser(i) {
 	await driver.get(data.link);
 
 	var html = await getHtml();
-
-	if (await checkImages()) {
-		writeStream.write(data.link + "\n");
-		console.log(data.link);
-	}
 
 	data.statusCode = -1;
 
